@@ -6,11 +6,15 @@ let baseUrl;
 
 describe('Authentication', async () => {
   before(async () => {
+    console.error('DEBUG before startTestServer');
     const s = await startTestServer();
     baseUrl = s.baseUrl;
+    console.error('DEBUG before done', baseUrl);
   });
   after(async () => {
+    console.error('DEBUG after start');
     await stopTestServer();
+    console.error('DEBUG after done');
   });
 
   it('registers a new user successfully', async () => {
@@ -33,8 +37,10 @@ describe('Authentication', async () => {
   });
 
   it('rejects registration with weak password', async () => {
+    console.error('DEBUG weak password test');
     const { res } = await registerUser(baseUrl, { password: 'short' });
     assert.strictEqual(res.status, 400);
+    console.error('DEBUG weak password test done');
   });
 
   it('logs in with valid credentials', async () => {

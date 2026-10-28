@@ -48,10 +48,12 @@ export const startTestServer = async () => {
 };
 
 export const stopTestServer = async () => {
-  try { await ioServerInstance.close(); } catch (_) {}
-  try { httpServer.close(); } catch (_) {}
-  try { await mongoose.disconnect(); } catch (_) {}
-  try { await mongod.stop(); } catch (_) {}
+  // Best-effort shutdown; do not await anything that can hang the worker.
+  try { ioServerInstance.close?.(); } catch (_) {}
+  try { httpServer.close?.(); } catch (_) {}
+  try { httpServer.closeAllConnections?.(); } catch (_) {}
+  // Terminate the worker (and any child mongod) so the test runner does not linger.
+  process.exit(0);
 };
 
 export const registerUser = async (baseUrl, overrides = {}) => {
