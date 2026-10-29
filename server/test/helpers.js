@@ -57,15 +57,14 @@ const withTimeout = (promise, ms) => {
 
 export const stopTestServer = async () => {
   // Graceful shutdown in a safe order to avoid libuv handle errors.
+  // We intentionally do NOT call process.exit(): node --test runs each file
+  // in a worker of the same process, and process.exit would kill the whole
+  // runner. Stopping mongod + mongoose lets the event loop drain naturally.
   try { ioServerInstance.close?.(); } catch (_) {}
   try { httpServer.close?.(); } catch (_) {}
   try { httpServer.closeAllConnections?.(); } catch (_) {}
-  // Stop the in-memory mongod child process first so its stdio handles close.
-  try { await withTimeout(mongod.stop(), 5000); } catch (_) {}
-  // Close mongoose last.
-  try { await withTimeout(mongoose.disconnect(), 5000); } catch (_) {}
-  // Force-exit after a short grace so any lingering mongod child is terminated.
-  setTimeout(() => process.exit(0), 1000).unref?.();
+  try { await withTimeout(mongod.stop(), 8000); } catch (_) {}
+  try { await withTimeout(mongoose.disconnect(), 8000); } catch (_) {}
 };
 
 export const registerUser = async (baseUrl, overrides = {}) => {

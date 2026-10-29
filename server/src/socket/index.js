@@ -37,6 +37,7 @@ const checkRateLimit = (userId, event) => {
 
 // Socket payload schemas
 const locationUpdateSchema = z.object({
+  tripId: z.string().min(1, 'Trip ID is required'),
   latitude: z.number().min(-90).max(90),
   longitude: z.number().min(-180).max(180),
   accuracyMeters: z.number().min(0).max(10000).optional(),
@@ -150,7 +151,13 @@ export const initSocket = (io) => {
           return ack?.({ error: 'Rate limited' });
         }
         const { tripId, ...payload } = locationUpdateSchema.parse(data);
-        await ensureMembership(tripId);
+        const membership = await ensureMembership(tripId);
+
+        const trip = await Trip.findById(tripId).lean();
+        if (!trip) return ack?.({ error: 'Trip not found' });
+        if (trip.status !== 'active') {
+          return ack?.({ error: 'Location updates are only accepted during an active trip' });
+        }
 
         const liveLocation = await upsertLiveLocation({ tripId, userId, payload });
 

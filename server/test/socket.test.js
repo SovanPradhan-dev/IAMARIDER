@@ -1,36 +1,54 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { io as Client } from 'socket.io-client';
+import jwt from 'jsonwebtoken';
 import { startTestServer, stopTestServer, createUserAndToken, createTestTrip } from './helpers.js';
 import { LiveLocation } from '../src/models/LiveLocation.js';
+
+const signLeaderToken = async (leader) => {
+  const { env } = await import('../src/config/env.js');
+  return jwt.sign({ userId: leader._id, email: leader.email }, env.JWT_ACCESS_SECRET, {
+    expiresIn: '15m',
+  });
+};
 
 let ioServer;
 let port;
 
 describe('Socket.IO real-time tracking', async () => {
   before(async () => {
+    console.error('DBG before startTestServer');
     const s = await startTestServer();
     ioServer = s.io;
     port = s.port;
+    console.error('DBG before done', port);
   });
   after(async () => {
+    console.error('DBG after start');
     await stopTestServer();
+    console.error('DBG after done');
   });
 
   const connectClient = (token) => {
+    console.error('DBG connectClient start');
     return new Promise((resolve, reject) => {
       const socket = Client(`http://127.0.0.1:${port}`, {
         auth: { token },
         transports: ['websocket', 'polling'],
       });
-      socket.on('connect', () => resolve(socket));
+      socket.on('connect', () => {
+        console.error('DBG client connect event');
+        resolve(socket);
+      });
       socket.on('connect_error', (err) => reject(new Error(err.message)));
     });
   };
 
   const emitAck = (socket, event, data) =>
     new Promise((resolve, reject) => {
+      console.error('DBG emitAck', event);
       socket.emit(event, data, (resp) => {
+        console.error('DBG emitAck ack', event, resp);
         if (resp && resp.error) reject(new Error(resp.error));
         else resolve(resp);
       });
@@ -38,22 +56,35 @@ describe('Socket.IO real-time tracking', async () => {
     });
 
   it('authorized members join a trip room and receive member-joined event', async () => {
+    console.error('DBG test1 start');
     const { user: u1, accessToken: t1 } = await createUserAndToken({ name: 'Rider One' });
     const { user: u2, accessToken: t2 } = await createUserAndToken({ name: 'Rider Two' });
+    console.error('DBG test1 users created', u1._id, u2._id);
     const { trip } = await createTestTrip([u1.email, u2.email]);
+    console.error('DBG test1 trip created', trip._id, trip.tripCode);
 
     const s1 = await connectClient(t1);
     const s2 = await connectClient(t2);
+    console.error('DBG test1 both connected');
+
+    // s1 joins first so it is in the room when s2 joins
+    await emitAck(s1, 'trip:join', { tripId: trip._id.toString() });
+    console.error('DBG test1 s1 joined');
 
     const memberJoined = new Promise((resolve) => {
-      s1.on('trip:member:joined', (data) => resolve(data));
+      s1.on('trip:member:joined', (data) => {
+        console.error('DBG test1 memberJoined received', data);
+        resolve(data);
+      });
     });
 
     await emitAck(s2, 'trip:join', { tripId: trip._id.toString() });
+    console.error('DBG test1 trip:join ack received');
 
     const data = await memberJoined;
     assert.strictEqual(data.userId, u2._id.toString());
     assert.strictEqual(data.tripId, trip._id.toString());
+    console.error('DBG test1 done');
 
     s1.disconnect();
     s2.disconnect();
@@ -62,7 +93,11 @@ describe('Socket.IO real-time tracking', async () => {
   it('a location update reaches other authorized riders in the same trip', async () => {
     const { user: u1, accessToken: t1 } = await createUserAndToken({ name: 'Rider One' });
     const { user: u2, accessToken: t2 } = await createUserAndToken({ name: 'Rider Two' });
-    const { trip } = await createTestTrip([u1.email, u2.email]);
+    const { trip, leader } = await createTestTrip([u1.email, u2.email]);
+    await fetch(`http://127.0.0.1:${port}/api/v1/trips/${trip._id}/start`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${await signLeaderToken(leader)}`, 'Content-Type': 'application/json' },
+    });
 
     const s1 = await connectClient(t1);
     const s2 = await connectClient(t2);
@@ -109,12 +144,15 @@ describe('Socket.IO real-time tracking', async () => {
 
   it('reconnecting client recovers current location snapshot', async () => {
     const { user: u1, accessToken: t1 } = await createUserAndToken({ name: 'Recon Rider' });
-    const { trip } = await createTestTrip([u1.email]);
+    const { trip, leader } = await createTestTrip([u1.email]);
+    await fetch(`http://127.0.0.1:${port}/api/v1/trips/${trip._id}/start`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${await signLeaderToken(leader)}`, 'Content-Type': 'application/json' },
+    });
 
     const s1 = await connectClient(t1);
     await emitAck(s1, 'trip:join', { tripId: trip._id.toString() });
 
-    // Post a location via REST so it exists before reconnect
     await fetch(`http://127.0.0.1:${port}/api/v1/trips/${trip._id}/locations`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${t1}`, 'Content-Type': 'application/json' },
@@ -135,9 +173,8 @@ describe('Socket.IO real-time tracking', async () => {
   it('completed trips reject new location updates', async () => {
     const { user: u1, accessToken: t1 } = await createUserAndToken({ name: 'Completed Rider' });
     const { trip, leader } = await createTestTrip([u1.email]);
-    const leaderToken = (await createUserAndToken({ email: leader.email })).accessToken;
+    const leaderToken = await signLeaderToken(leader);
 
-    // End the trip as leader
     await fetch(`http://127.0.0.1:${port}/api/v1/trips/${trip._id}/end`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${leaderToken}`, 'Content-Type': 'application/json' },
@@ -152,7 +189,7 @@ describe('Socket.IO real-time tracking', async () => {
       });
       assert.fail('should have rejected location update on completed trip');
     } catch (err) {
-      assert.ok(err.message.includes('not active') || err.message.includes('400'));
+      assert.ok(/active trip/i.test(err.message));
     }
     s1.disconnect();
   });
