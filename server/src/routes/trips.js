@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { catchAsync } from '../utils/catchAsync.js';
 import {
   createTripHandler, listTripsHandler, getTripHandler, joinTripHandler,
   leaveTripHandler, updateTripHandler, removeMemberHandler, startTripHandler,
@@ -18,33 +19,33 @@ import { historyQuerySchema as trackingQuerySchema } from '../validators/trackin
 const router = Router();
 
 // Trip CRUD
-router.post('/', authenticate, validateBody(createTripSchema), createTripHandler);
-router.get('/', authenticate, listTripsHandler);
-router.get('/:tripId', authenticate, validateParams(tripIdParamSchema), getTripHandler);
-router.patch('/:tripId', authenticate, validateParams(tripIdParamSchema), validateBody(updateTripSchema), updateTripHandler);
+router.post('/', authenticate, validateBody(createTripSchema), catchAsync(createTripHandler));
+router.get('/', authenticate, catchAsync(listTripsHandler));
+router.get('/:tripId', authenticate, validateParams(tripIdParamSchema), catchAsync(getTripHandler));
+router.patch('/:tripId', authenticate, validateParams(tripIdParamSchema), validateBody(updateTripSchema), catchAsync(updateTripHandler));
 
 // Join / leave
-router.post('/join', authenticate, validateBody(joinTripSchema), joinTripHandler);
-router.post('/:tripId/leave', authenticate, validateParams(tripIdParamSchema), leaveTripHandler);
+router.post('/join', authenticate, validateBody(joinTripSchema), catchAsync(joinTripHandler));
+router.post('/:tripId/leave', authenticate, validateParams(tripIdParamSchema), catchAsync(leaveTripHandler));
 
 // Members
-router.get('/:tripId/members', authenticate, validateParams(tripIdParamSchema), listMembersHandler);
-router.delete('/:tripId/members/:userId', authenticate, validateParams(memberUserIdParamSchema), removeMemberHandler);
+router.get('/:tripId/members', authenticate, validateParams(tripIdParamSchema), catchAsync(listMembersHandler));
+router.delete('/:tripId/members/:userId', authenticate, validateParams(memberUserIdParamSchema), catchAsync(removeMemberHandler));
 
 // Lifecycle
-router.post('/:tripId/start', authenticate, validateParams(tripIdParamSchema), startTripHandler);
-router.post('/:tripId/end', authenticate, validateParams(tripIdParamSchema), endTripHandler);
-router.post('/:tripId/cancel', authenticate, validateParams(tripIdParamSchema), cancelTripHandler);
+router.post('/:tripId/start', authenticate, validateParams(tripIdParamSchema), catchAsync(startTripHandler));
+router.post('/:tripId/end', authenticate, validateParams(tripIdParamSchema), catchAsync(endTripHandler));
+router.post('/:tripId/cancel', authenticate, validateParams(tripIdParamSchema), catchAsync(cancelTripHandler));
 router.post(
   '/:tripId/transfer-leadership',
   authenticate,
   validateParams(tripIdParamSchema),
   validateBody(z.object({ targetUserId: z.string().min(1, 'Target user ID is required') })),
-  transferLeadershipHandler
+  catchAsync(transferLeadershipHandler)
 );
 
 // Tracking
-router.get('/:tripId/locations', authenticate, validateParams(tripIdParamSchema), getLocationsHandler);
-router.get('/:tripId/history/summary', authenticate, validateParams(tripIdParamSchema), validateQuery(trackingQuerySchema), getHistorySummaryHandler);
+router.get('/:tripId/locations', authenticate, validateParams(tripIdParamSchema), catchAsync(getLocationsHandler));
+router.get('/:tripId/history/summary', authenticate, validateParams(tripIdParamSchema), validateQuery(trackingQuerySchema), catchAsync(getHistorySummaryHandler));
 
 export default router;

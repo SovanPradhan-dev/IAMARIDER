@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { catchAsync } from '../utils/catchAsync.js';
 import {
   registerHandler, loginHandler, refreshHandler, logoutHandler,
   meHandler, updateProfileHandler, myTripsHandler,
@@ -12,12 +13,12 @@ import { updateProfileSchema } from '../validators/user.js';
 
 const router = Router();
 
-router.post('/register', authRateLimit, validateBody(registerSchema), registerHandler);
-router.post('/login', authRateLimit, validateBody(loginSchema), loginHandler);
-router.post('/refresh', authRateLimit, refreshHandler);
-router.post('/logout', authenticate, logoutHandler);
-router.get('/me', authenticate, meHandler);
-router.patch('/me', authenticate, validateBody(updateProfileSchema), updateProfileHandler);
+router.post('/register', authRateLimit, validateBody(registerSchema), catchAsync(registerHandler));
+router.post('/login', authRateLimit, validateBody(loginSchema), catchAsync(loginHandler));
+router.post('/refresh', authRateLimit, catchAsync(refreshHandler));
+router.post('/logout', authenticate, catchAsync(logoutHandler));
+router.get('/me', authenticate, catchAsync(meHandler));
+router.patch('/me', authenticate, validateBody(updateProfileSchema), catchAsync(updateProfileHandler));
 router.get(
   '/me/trips',
   authenticate,
@@ -25,7 +26,7 @@ router.get(
     page: z.coerce.number().int().min(1).default(1),
     limit: z.coerce.number().int().min(1).max(100).default(20),
   })),
-  myTripsHandler
+  catchAsync(myTripsHandler)
 );
 
 export default router;

@@ -47,13 +47,25 @@ export const startTestServer = async () => {
   };
 };
 
+const withTimeout = (promise, ms) => {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error('timeout')), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+};
+
 export const stopTestServer = async () => {
-  // Best-effort shutdown; do not await anything that can hang the worker.
+  // Graceful shutdown in a safe order to avoid libuv handle errors.
   try { ioServerInstance.close?.(); } catch (_) {}
   try { httpServer.close?.(); } catch (_) {}
   try { httpServer.closeAllConnections?.(); } catch (_) {}
-  // Terminate the worker (and any child mongod) so the test runner does not linger.
-  process.exit(0);
+  // Stop the in-memory mongod child process first so its stdio handles close.
+  try { await withTimeout(mongod.stop(), 5000); } catch (_) {}
+  // Close mongoose last.
+  try { await withTimeout(mongoose.disconnect(), 5000); } catch (_) {}
+  // Force-exit after a short grace so any lingering mongod child is terminated.
+  setTimeout(() => process.exit(0), 1000).unref?.();
 };
 
 export const registerUser = async (baseUrl, overrides = {}) => {

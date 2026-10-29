@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { catchAsync } from '../utils/catchAsync.js';
 import {
   createEmergencyHandler, getEmergenciesHandler, resolveEmergencyHandler,
 } from '../controllers/emergencyController.js';
@@ -9,8 +10,8 @@ import { createEmergencySchema, resolveEmergencySchema } from '../validators/eme
 
 const router = Router();
 
-router.post('/:tripId/emergencies', authenticate, validateParams(tripIdParamSchema), validateBody(createEmergencySchema), createEmergencyHandler);
-router.get('/:tripId/emergencies', authenticate, validateParams(tripIdParamSchema), getEmergenciesHandler);
-router.patch('/:tripId/emergencies/:eventId', authenticate, validateParams(tripIdParamSchema), validateBody(resolveEmergencySchema), resolveEmergencyHandler);
+router.post('/:tripId/emergencies', authenticate, validateParams(tripIdParamSchema), validateBody(createEmergencySchema), catchAsync(createEmergencyHandler));
+router.get('/:tripId/emergencies', authenticate, validateParams(tripIdParamSchema), catchAsync(getEmergenciesHandler));
+router.patch('/:tripId/emergencies/:eventId', authenticate, validateParams(tripIdParamSchema), validateBody(resolveEmergencySchema), catchAsync(resolveEmergencyHandler));
 
 export default router;
