@@ -42,7 +42,7 @@ export const authenticate = async (req, res, next) => {
  * Optional authentication: attaches user if a valid token is present,
  * otherwise continues without erroring. Used for public-friendly endpoints.
  */
-export const optionalAuth = async (req, res, next) => {
+export const optionalAuth = async (req, _res, next) => {
   try {
     const token = extractToken(req);
     if (token) {
@@ -51,7 +51,7 @@ export const optionalAuth = async (req, res, next) => {
       req.token = token;
     }
     return next();
-  } catch (err) {
+  } catch {
     return next();
   }
 };

@@ -1,15 +1,21 @@
-import { MapContainer, TileLayer, Polyline, useMap, useMapEvents } from 'react-leaflet';
+import { MapContainer, TileLayer, Polyline, useMap } from 'react-leaflet';
 import { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import RiderMarker from './RiderMarker.jsx';
 import CheckpointMarker from './CheckpointMarker.jsx';
+import { MAP_ATTRIBUTION, MAP_TILE_URL } from './mapTiles.js';
 
 // Ensure Leaflet CSS is imported once
 import 'leaflet/dist/leaflet.css';
 
-export default function LiveMap({ riders, checkpoints, route, center, zoom = 13, fitToRiders = false }) {
+function MapReady({ onReady }) {
+  const map = useMap();
+  useEffect(() => onReady?.(map), [map, onReady]);
+  return null;
+}
+
+export default function LiveMap({ riders, checkpoints, route, center, zoom = 13, fitToRiders = false, onMapReady }) {
   const mapRef = useRef(null);
-  const boundsRef = useRef(null);
 
   useEffect(() => {
     if (!fitToRiders || !mapRef.current) return;
@@ -32,9 +38,10 @@ export default function LiveMap({ riders, checkpoints, route, center, zoom = 13,
       zoom={zoom}
       style={{ height: '100%', width: '100%', borderRadius: '0.75rem', border: '1px solid #e2e8f0' }}
     >
+      <MapReady onReady={onMapReady} />
       <TileLayer
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        attribution='&copy; OpenStreetMap contributors'
+        url={MAP_TILE_URL}
+        attribution={MAP_ATTRIBUTION}
       />
       {route && route.coordinates && route.coordinates.length > 0 && (
         <Polyline

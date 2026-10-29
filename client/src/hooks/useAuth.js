@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { authStore } from '../store/authStore';
 import { api, setAccessToken } from '../lib/api';
-import { connectSocket, disconnectSocket, getSocket } from '../lib/socket';
+import { disconnectSocket } from '../lib/socket';
 
 export const useAuth = () => {
   const [state, setState] = useState(authStore.getState());
@@ -35,8 +35,8 @@ export const useAuth = () => {
   const logout = useCallback(async () => {
     try {
       await api.post('/auth/logout');
-    } catch (_) {
-      // ignore
+    } catch (err) {
+      console.warn('Logout request failed; clearing the local session', err.message);
     }
     setAccessToken(null);
     disconnectSocket();
@@ -49,6 +49,12 @@ export const useAuth = () => {
     return res.data.user;
   }, []);
 
+  const updateProfile = useCallback(async (updates) => {
+    const res = await api.patch('/users/me', updates);
+    authStore.setUser(res.data.user);
+    return res.data.user;
+  }, []);
+
   return {
     ...state,
     login,
@@ -56,17 +62,6 @@ export const useAuth = () => {
     refresh,
     logout,
     getMe,
+    updateProfile,
   };
-};
-
-export const useSocket = () => {
-  const [socket, setSocket] = useState(getSocket());
-
-  useEffect(() => {
-    if (!socket) return;
-    const unsub = () => {};
-    return unsub;
-  }, [socket]);
-
-  return socket;
 };

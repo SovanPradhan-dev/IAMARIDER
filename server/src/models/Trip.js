@@ -24,6 +24,7 @@ const tripSchema = new mongoose.Schema(
       default: 'scheduled',
     },
     maxMembers: { type: Number, min: 2, default: 10 },
+    memberCount: { type: Number, min: 1 },
     privacy: { type: String, enum: ['public', 'private'], default: 'private' },
     startedAt: { type: Date },
     endedAt: { type: Date },

@@ -44,16 +44,21 @@ describe('Socket.IO real-time tracking', async () => {
     });
   };
 
-  const emitAck = (socket, event, data) =>
+  const emitAckRaw = (socket, event, data) =>
     new Promise((resolve, reject) => {
       console.error('DBG emitAck', event);
       socket.emit(event, data, (resp) => {
         console.error('DBG emitAck ack', event, resp);
-        if (resp && resp.error) reject(new Error(resp.error));
-        else resolve(resp);
+        resolve(resp);
       });
       setTimeout(() => reject(new Error(`timeout waiting for ${event} ack`)), 5000);
     });
+
+  const emitAck = async (socket, event, data) => {
+    const response = await emitAckRaw(socket, event, data);
+    if (response?.error) throw new Error(response.error);
+    return response;
+  };
 
   it('authorized members join a trip room and receive member-joined event', async () => {
     console.error('DBG test1 start');
@@ -124,6 +129,16 @@ describe('Socket.IO real-time tracking', async () => {
     assert.strictEqual(data.location.type, 'Point');
     assert.ok(data.freshness);
 
+    const secondUpdate = await emitAckRaw(s2, 'location:update', {
+      tripId: trip._id.toString(),
+      latitude: 22.5727,
+      longitude: 88.364,
+      accuracyMeters: 5,
+      speedMps: null,
+      headingDegrees: null,
+    });
+    assert.strictEqual(secondUpdate.ok, true);
+
     s1.disconnect();
     s2.disconnect();
   });
@@ -153,10 +168,12 @@ describe('Socket.IO real-time tracking', async () => {
     const s1 = await connectClient(t1);
     await emitAck(s1, 'trip:join', { tripId: trip._id.toString() });
 
-    await fetch(`http://127.0.0.1:${port}/api/v1/trips/${trip._id}/locations`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${t1}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ latitude: 22.5726, longitude: 88.3639, accuracyMeters: 4 }),
+    // Post a live location via socket so it persists before reconnect
+    await emitAck(s1, 'location:update', {
+      tripId: trip._id.toString(),
+      latitude: 22.5726,
+      longitude: 88.3639,
+      accuracyMeters: 4,
     });
 
     s1.disconnect();
@@ -192,5 +209,24 @@ describe('Socket.IO real-time tracking', async () => {
       assert.ok(/active trip/i.test(err.message));
     }
     s1.disconnect();
+  });
+
+  it('persists and broadcasts a trip chat message', async () => {
+    const { user, accessToken } = await createUserAndToken({ name: 'Chat Rider' });
+    const { trip } = await createTestTrip([user.email]);
+    const socket = await connectClient(accessToken);
+    await emitAck(socket, 'trip:join', { tripId: trip._id.toString() });
+
+    const received = new Promise((resolve) => {
+      socket.once('trip:message:new', resolve);
+    });
+    await emitAck(socket, 'trip:message:send', {
+      tripId: trip._id.toString(),
+      text: 'Ready to ride',
+    });
+    const message = await received;
+    assert.strictEqual(message.text, 'Ready to ride');
+    assert.strictEqual(message.senderId._id.toString(), user._id.toString());
+    socket.disconnect();
   });
 });

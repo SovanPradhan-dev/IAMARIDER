@@ -22,3 +22,8 @@ export const updateCheckpointSchema = z.object({
 });
 
 export const arrivalSchema = z.object({});
+
+export const checkpointParamsSchema = z.object({
+  tripId: z.string().regex(/^[a-f\d]{24}$/i, 'Invalid trip ID'),
+  checkpointId: z.string().regex(/^[a-f\d]{24}$/i, 'Invalid checkpoint ID'),
+});

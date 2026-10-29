@@ -3,13 +3,11 @@
  * Run: npm run seed  (requires MONGODB_URI and JWT secrets in .env)
  * WARNING: This creates test/demo data. Do not run against production.
  */
-import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 import { User } from '../models/User.js';
 import { Trip } from '../models/Trip.js';
 import { TripMember } from '../models/TripMember.js';
 import { connectDB, disconnectDB } from '../config/db.js';
-import { env } from '../config/env.js';
 
 const DEMO_PASSWORD = 'DemoPass123!';
 
@@ -57,6 +55,7 @@ const run = async () => {
   const tripData = trips[0];
   const trip = await Trip.create({
     ...tripData,
+    memberCount: createdUsers.length,
     tripCode: 'RT-DEMO01',
     createdBy: leader._id,
     leaderId: leader._id,

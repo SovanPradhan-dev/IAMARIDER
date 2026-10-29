@@ -15,3 +15,8 @@ export const resolveEmergencySchema = z.object({
   status: z.enum(['resolved', 'cancelled']),
   resolutionNotes: z.string().trim().max(500).optional(),
 });
+
+export const emergencyParamsSchema = z.object({
+  tripId: z.string().regex(/^[a-f\d]{24}$/i, 'Invalid trip ID'),
+  eventId: z.string().regex(/^[a-f\d]{24}$/i, 'Invalid emergency event ID'),
+});

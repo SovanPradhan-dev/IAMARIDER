@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { api } from '../../lib/api';
 
 const freshnessLabel = (f) => {
   switch (f) {
@@ -20,14 +19,21 @@ const freshnessColor = (f) => {
 };
 
 export default function RiderList({ riders, currentUserId }) {
-  const [refresh, setRefresh] = useState(0);
+  const [, setRefresh] = useState(0);
 
   useEffect(() => {
-    const t = setTimeout(() => setRefresh((r) => r + 1), 5000);
-    return () => clearTimeout(t);
+    const timer = setInterval(() => setRefresh((r) => r + 1), 5000);
+    return () => clearInterval(timer);
   }, []);
 
-  const sorted = [...riders].sort((a, b) => {
+  const withFreshness = riders.map((rider) => {
+    if (!rider.updatedAt) return { ...rider, freshness: 'offline' };
+    return {
+      ...rider,
+      freshness: Date.now() - new Date(rider.updatedAt).getTime() > 90000 ? 'stale' : 'online',
+    };
+  });
+  const sorted = withFreshness.sort((a, b) => {
     const order = { online: 0, stale: 1, offline: 2 };
     return (order[a.freshness] ?? 99) - (order[b.freshness] ?? 99);
   });

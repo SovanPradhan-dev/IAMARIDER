@@ -8,6 +8,7 @@ export default {
     extend: {
       colors: {
         forest: {
+          950: '#071c14',
           900: '#0b2a1e',
           800: '#104532',
           700: '#156046',

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { api } from '../../lib/api';
 import { toast } from '../common/Toast.jsx';
 
-export default function CheckpointList({ tripId, checkpoints, isLeader }) {
+export default function CheckpointList({ tripId, checkpoints, isLeader, onChange }) {
   const [newCp, setNewCp] = useState({
     name: '',
     description: '',
@@ -25,6 +25,8 @@ export default function CheckpointList({ tripId, checkpoints, isLeader }) {
         sequence: parseInt(newCp.sequence, 10),
         plannedArrivalAt: newCp.plannedArrivalAt || undefined,
       });
+      const { data } = await api.get(`/trips/${tripId}/checkpoints`);
+      onChange?.(data.checkpoints || []);
       toast.success('Checkpoint added');
       setNewCp({
         name: '',
@@ -55,9 +57,6 @@ export default function CheckpointList({ tripId, checkpoints, isLeader }) {
     <div className="card h-[420px] flex flex-col">
       <div className="p-4 border-b border-slate-200 flex items-center justify-between">
         <h3 className="font-semibold text-slate-900">Checkpoints</h3>
-        {isLeader ? (
-          <button className="text-xs text-forest-600 hover:underline">Manage</button>
-        ) : null}
       </div>
       <div className="flex-1 overflow-y-auto p-3 space-y-2">
         {checkpoints.length === 0 ? (
@@ -91,6 +90,7 @@ export default function CheckpointList({ tripId, checkpoints, isLeader }) {
           <form onSubmit={addCheckpoint} className="space-y-2">
             <input
               placeholder="Checkpoint name"
+              aria-label="Checkpoint name"
               value={newCp.name}
               onChange={(e) => setNewCp({ ...newCp, name: e.target.value })}
               className="input text-xs"
@@ -98,18 +98,21 @@ export default function CheckpointList({ tripId, checkpoints, isLeader }) {
             <div className="flex gap-2">
               <input
                 placeholder="Lat"
+              aria-label="Checkpoint latitude"
                 value={newCp.latitude}
                 onChange={(e) => setNewCp({ ...newCp, latitude: e.target.value })}
                 className="input text-xs flex-1"
               />
               <input
                 placeholder="Lon"
+                aria-label="Checkpoint longitude"
                 value={newCp.longitude}
                 onChange={(e) => setNewCp({ ...newCp, longitude: e.target.value })}
                 className="input text-xs flex-1"
               />
               <input
                 placeholder="Seq"
+                aria-label="Checkpoint sequence"
                 value={newCp.sequence}
                 onChange={(e) => setNewCp({ ...newCp, sequence: e.target.value })}
                 className="input text-xs w-20"

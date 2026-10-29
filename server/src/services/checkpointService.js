@@ -90,18 +90,26 @@ export const reportArrival = async ({ tripId, checkpointId, userId }) => {
     throw new AppError('Arrival already reported for this checkpoint', 409);
   }
 
-  const arrival = await CheckpointArrival.create({ checkpointId, tripId, userId });
+  let arrival;
+  try {
+    arrival = await CheckpointArrival.create({ checkpointId, tripId, userId });
+  } catch (err) {
+    if (err.code === 11000) {
+      throw new AppError('Arrival already reported for this checkpoint', 409);
+    }
+    throw err;
+  }
   logger.info('arrival reported', { tripId, checkpointId, userId });
   return arrival;
 };
 
-export const getArrivals = async ({ tripId, userId }) => {
+export const getArrivals = async ({ tripId, checkpointId, userId }) => {
   const membership = await TripMember.findOne({ tripId, userId, status: 'joined' }).lean();
   if (!membership) {
     throw new AppError('You are not a member of this trip', 403);
   }
 
-  return CheckpointArrival.find({ tripId })
+  return CheckpointArrival.find({ tripId, ...(checkpointId ? { checkpointId } : {}) })
     .populate('userId', 'name avatarUrl')
     .sort({ arrivedAt: -1 })
     .lean();

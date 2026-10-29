@@ -44,8 +44,8 @@ export const useGeolocation = ({ sendLocation, enabled = false, intervalMs = 400
           latitude: coords.latitude,
           longitude: coords.longitude,
           accuracyMeters: coords.accuracy,
-          speedMps: coords.speed,
-          headingDegrees: coords.heading,
+          ...(Number.isFinite(coords.speed) ? { speedMps: coords.speed } : {}),
+          ...(Number.isFinite(coords.heading) ? { headingDegrees: coords.heading } : {}),
           recordedAt: new Date(timestamp).toISOString(),
         });
       }

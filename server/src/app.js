@@ -2,12 +2,12 @@ import express from 'express';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import cors from 'cors';
-import { env } from './config/env.js';
 import { logger } from './config/logger.js';
 import { errorHandler } from './middleware/errorHandler.js';
-import { generalRateLimit } from './middleware/rateLimit.js';
+import { isAllowedClientOrigin } from './config/clientOrigins.js';
 
 import authRoutes from './routes/auth.js';
+import userRoutes from './routes/users.js';
 import tripRoutes from './routes/trips.js';
 import messageRoutes from './routes/messages.js';
 import checkpointRoutes from './routes/checkpoints.js';
@@ -25,9 +25,8 @@ export const createApp = () => {
   }));
 
   // CORS with explicit allowed origins
-  const allowedOrigins = [env.CLIENT_URL].filter(Boolean);
   app.use(cors({
-    origin: allowedOrigins,
+    origin: (origin, callback) => callback(null, isAllowedClientOrigin(origin)),
     credentials: true,
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
@@ -38,30 +37,26 @@ export const createApp = () => {
   app.use(express.urlencoded({ extended: true, limit: '100kb' }));
 
   // Request logger
-  app.use((req, res, next) => {
+  app.use((req, _res, next) => {
     logger.debug('request', { method: req.method, path: req.path, userId: req.user ? req.user.userId : null });
     next();
   });
 
   // Health check
-  app.get('/health', (req, res) => {
+  app.get(['/health', '/api/v1/health'], (_req, res) => {
     res.json({ status: 'ok', service: 'ridetogether-server', time: new Date().toISOString() });
   });
 
   // API routes
   app.use('/api/v1/auth', authRoutes);
-  app.use('/api/v1/users', (req, res, next) => {
-    // mount profile routes under /users/me via authRoutes? kept separate for clarity
-    next();
-  });
-  app.use('/api/v1', authRoutes);
+  app.use('/api/v1/users', userRoutes);
   app.use('/api/v1/trips', tripRoutes);
   app.use('/api/v1/trips', messageRoutes);
   app.use('/api/v1/trips', checkpointRoutes);
   app.use('/api/v1/trips', emergencyRoutes);
 
   // 404
-  app.use((req, res) => {
+  app.use((_req, res) => {
     res.status(404).json({ error: 'Not found' });
   });
 

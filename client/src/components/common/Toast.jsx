@@ -1,5 +1,3 @@
-import { useCallback } from 'react';
-
 let container = null;
 
 const ensureContainer = () => {

@@ -3,6 +3,14 @@ node_modules/
 .pnp
 .pnp.js
 
+# Local MongoDB data
+/data/
+
+# Downloaded package artifacts
+/client/react-router-*.tgz
+/client/react-router-src/
+/client/react-router-dom-src/
+
 # Build outputs
 dist/
 build/
@@ -14,7 +22,6 @@ build/
 .env.development.local
 .env.test.local
 .env.production.local
-*.env
 
 # IDE
 .vscode/

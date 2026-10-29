@@ -2,7 +2,7 @@ import jwt from 'jsonwebtoken';
 import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
 import {
-  upsertLiveLocation, stopSharing, freshnessStatus, LOCATION_CONFIG,
+  upsertLiveLocation, freshnessStatus,
 } from '../services/locationService.js';
 import { createMessage } from '../services/messageService.js';
 import { reportArrival } from '../services/checkpointService.js';
@@ -11,29 +11,9 @@ import { Trip } from '../models/Trip.js';
 import { TripMember } from '../models/TripMember.js';
 import { Message } from '../models/Message.js';
 import { EmergencyEvent } from '../models/EmergencyEvent.js';
-import { CheckpointArrival } from '../models/CheckpointArrival.js';
 import { LiveLocation } from '../models/LiveLocation.js';
+import { notifyTripMembers } from '../utils/tripEvents.js';
 import { z } from 'zod';
-
-/**
- * Per-user in-memory event rate limiting (simple sliding counter).
- * Sufficient for a single-node server; use Redis-backed adapter for multi-node.
- */
-const userEventCounts = new Map(); // userId => { windowStart, counts: Map(event, n) }
-const RATE_LIMIT_WINDOW_MS = 60 * 1000;
-const MAX_EVENTS_PER_WINDOW = 120;
-
-const checkRateLimit = (userId, event) => {
-  const now = Date.now();
-  let state = userEventCounts.get(userId);
-  if (!state || now - state.windowStart > RATE_LIMIT_WINDOW_MS) {
-    state = { windowStart: now, counts: new Map() };
-    userEventCounts.set(userId, state);
-  }
-  const n = (state.counts.get(event) || 0) + 1;
-  state.counts.set(event, n);
-  return n <= MAX_EVENTS_PER_WINDOW;
-};
 
 // Socket payload schemas
 const locationUpdateSchema = z.object({
@@ -41,12 +21,13 @@ const locationUpdateSchema = z.object({
   latitude: z.number().min(-90).max(90),
   longitude: z.number().min(-180).max(180),
   accuracyMeters: z.number().min(0).max(10000).optional(),
-  speedMps: z.number().min(0).max(500).optional(),
-  headingDegrees: z.number().min(0).max(360).optional(),
+  speedMps: z.number().min(0).max(500).nullable().optional(),
+  headingDegrees: z.number().min(0).max(360).nullable().optional(),
   recordedAt: z.string().datetime().optional(),
 });
 
 const messageSendSchema = z.object({
+  tripId: z.string().min(1, 'Trip ID is required'),
   text: z.string().trim().min(1).max(1000),
 });
 
@@ -78,6 +59,8 @@ export const initSocket = (io) => {
 
   io.on('connection', (socket) => {
     const userId = socket.userId;
+    socket.data.userId = userId.toString();
+    socket.join(`user:${userId}`);
     const activeTrips = new Set(); // tripIds this socket is currently in
 
     logger.info('socket connected', { userId, socketId: socket.id });
@@ -94,17 +77,15 @@ export const initSocket = (io) => {
     // --- trip:join ---
     socket.on('trip:join', async (data, ack) => {
       try {
-        if (!checkRateLimit(userId, 'trip:join')) {
-          return ack?.({ error: 'Rate limited' });
-        }
         const { tripId } = z.object({ tripId: z.string().min(1) }).parse(data);
         await ensureMembership(tripId);
 
+        const alreadyJoined = activeTrips.has(tripId);
         socket.join(tripId);
         activeTrips.add(tripId);
 
         // Broadcast member joined to others in the room
-        socket.to(tripId).emit('trip:member:joined', { tripId, userId });
+        if (!alreadyJoined) socket.to(tripId).emit('trip:member:joined', { tripId, userId });
 
         // Load current locations snapshot for the requester
         const locations = await LiveLocation.find({ tripId }).lean();
@@ -127,9 +108,6 @@ export const initSocket = (io) => {
     // --- trip:leave ---
     socket.on('trip:leave', async (data, ack) => {
       try {
-        if (!checkRateLimit(userId, 'trip:leave')) {
-          return ack?.({ error: 'Rate limited' });
-        }
         const { tripId } = z.object({ tripId: z.string().min(1) }).parse(data);
         await ensureMembership(tripId);
 
@@ -147,11 +125,8 @@ export const initSocket = (io) => {
     // --- location:update ---
     socket.on('location:update', async (data, ack) => {
       try {
-        if (!checkRateLimit(userId, 'location:update')) {
-          return ack?.({ error: 'Rate limited' });
-        }
         const { tripId, ...payload } = locationUpdateSchema.parse(data);
-        const membership = await ensureMembership(tripId);
+        await ensureMembership(tripId);
 
         const trip = await Trip.findById(tripId).lean();
         if (!trip) return ack?.({ error: 'Trip not found' });
@@ -184,12 +159,7 @@ export const initSocket = (io) => {
     // --- trip:message:send ---
     socket.on('trip:message:send', async (data, ack) => {
       try {
-        if (!checkRateLimit(userId, 'trip:message:send')) {
-          return ack?.({ error: 'Rate limited' });
-        }
-        const { tripId, text } = messageSendSchema.parse({ text: data.text, ...(data.tripId ? { tripId } : {}) });
-        // messageSendSchema doesn't include tripId; validate separately
-        const parsed = z.object({ tripId: z.string().min(1), text: z.string().min(1).max(1000) }).parse(data);
+        const parsed = messageSendSchema.parse(data);
         await ensureMembership(parsed.tripId);
 
         const message = await createMessage({ tripId: parsed.tripId, senderId: userId, text: parsed.text });
@@ -211,9 +181,6 @@ export const initSocket = (io) => {
     // --- checkpoint:arrival ---
     socket.on('checkpoint:arrival', async (data, ack) => {
       try {
-        if (!checkRateLimit(userId, 'checkpoint:arrival')) {
-          return ack?.({ error: 'Rate limited' });
-        }
         const { tripId, checkpointId } = z.object({
           tripId: z.string().min(1),
           checkpointId: z.string().min(1),
@@ -222,6 +189,12 @@ export const initSocket = (io) => {
 
         const arrival = await reportArrival({ tripId, checkpointId, userId });
 
+        await notifyTripMembers(io, tripId, {
+          type: 'checkpoint_arrival',
+          title: 'Rider reached a checkpoint',
+          message: 'A rider reached a checkpoint.',
+          excludeUserIds: [userId],
+        });
         io.to(tripId).emit('checkpoint:arrival:new', {
           ...arrival,
           arrivedAt: arrival.arrivedAt,
@@ -237,9 +210,6 @@ export const initSocket = (io) => {
     // --- emergency:create ---
     socket.on('emergency:create', async (data, ack) => {
       try {
-        if (!checkRateLimit(userId, 'emergency:create')) {
-          return ack?.({ error: 'Rate limited' });
-        }
         const { tripId, ...payload } = emergencyCreateSchema.parse(data);
         await ensureMembership(tripId);
 
@@ -249,6 +219,12 @@ export const initSocket = (io) => {
           .populate('reportedBy', 'name avatarUrl')
           .lean();
 
+        await notifyTripMembers(io, tripId, {
+          type: 'emergency_alert',
+          title: 'Safety alert reported',
+          message: `${populated.reportedBy?.name || 'A rider'} reported an emergency.`,
+          excludeUserIds: [userId],
+        });
         io.to(tripId).emit('emergency:new', {
           ...populated,
           createdAt: populated.createdAt,
@@ -264,9 +240,6 @@ export const initSocket = (io) => {
     // --- presence:heartbeat ---
     socket.on('presence:heartbeat', async (data, ack) => {
       try {
-        if (!checkRateLimit(userId, 'presence:heartbeat')) {
-          return ack?.({ error: 'Rate limited' });
-        }
         const { tripId } = z.object({ tripId: z.string().min(1).optional() }).parse(data);
         if (tripId) {
           await ensureMembership(tripId);

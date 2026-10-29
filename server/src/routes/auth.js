@@ -3,20 +3,25 @@ import { z } from 'zod';
 import { catchAsync } from '../utils/catchAsync.js';
 import {
   registerHandler, loginHandler, refreshHandler, logoutHandler,
-  meHandler, updateProfileHandler, myTripsHandler,
+  meHandler, updateProfileHandler, myTripsHandler, changePasswordHandler,
 } from '../controllers/authController.js';
-import { authenticate, optionalAuth } from '../middleware/auth.js';
+import { authenticate } from '../middleware/auth.js';
 import { validateBody, validateQuery } from '../middleware/validation.js';
-import { authRateLimit } from '../middleware/rateLimit.js';
 import { registerSchema, loginSchema } from '../validators/auth.js';
-import { updateProfileSchema } from '../validators/user.js';
+import { changePasswordSchema, updateProfileSchema } from '../validators/user.js';
 
 const router = Router();
 
-router.post('/register', authRateLimit, validateBody(registerSchema), catchAsync(registerHandler));
-router.post('/login', authRateLimit, validateBody(loginSchema), catchAsync(loginHandler));
-router.post('/refresh', authRateLimit, catchAsync(refreshHandler));
+router.post('/register', validateBody(registerSchema), catchAsync(registerHandler));
+router.post('/login', validateBody(loginSchema), catchAsync(loginHandler));
+router.post('/refresh', catchAsync(refreshHandler));
 router.post('/logout', authenticate, catchAsync(logoutHandler));
+router.patch(
+  '/change-password',
+  authenticate,
+  validateBody(changePasswordSchema),
+  catchAsync(changePasswordHandler)
+);
 router.get('/me', authenticate, catchAsync(meHandler));
 router.patch('/me', authenticate, validateBody(updateProfileSchema), catchAsync(updateProfileHandler));
 router.get(

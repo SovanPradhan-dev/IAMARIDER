@@ -2,6 +2,8 @@ import {
   createCheckpoint, getCheckpoints, updateCheckpoint,
   deleteCheckpoint, reportArrival, getArrivals,
 } from '../services/checkpointService.js';
+import { CheckpointArrival } from '../models/CheckpointArrival.js';
+import { emitTripEvent, notifyTripMembers } from '../utils/tripEvents.js';
 
 export const createCheckpointHandler = async (req, res) => {
   const { tripId } = req.validatedParams;
@@ -38,12 +40,20 @@ export const deleteCheckpointHandler = async (req, res) => {
 
 export const reportArrivalHandler = async (req, res) => {
   const { tripId, checkpointId } = req.validatedParams;
-  const arrival = await reportArrival({ tripId, checkpointId, userId: req.user.userId });
+  const created = await reportArrival({ tripId, checkpointId, userId: req.user.userId });
+  const arrival = await CheckpointArrival.findById(created._id).populate('userId', 'name avatarUrl').lean();
+  emitTripEvent(req, tripId, 'checkpoint:arrival:new', arrival);
+  await notifyTripMembers(req.app.get('io'), tripId, {
+    type: 'checkpoint_arrival',
+    title: 'Rider reached a checkpoint',
+    message: `${arrival.userId?.name || 'A rider'} reached a checkpoint.`,
+    excludeUserIds: [req.user.userId],
+  });
   res.status(201).json({ arrival });
 };
 
 export const getArrivalsHandler = async (req, res) => {
-  const { tripId } = req.validatedParams;
-  const arrivals = await getArrivals({ tripId, userId: req.user.userId });
+  const { tripId, checkpointId } = req.validatedParams;
+  const arrivals = await getArrivals({ tripId, checkpointId, userId: req.user.userId });
   res.json({ arrivals });
 };

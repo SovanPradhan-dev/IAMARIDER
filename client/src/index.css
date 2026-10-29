@@ -16,9 +16,28 @@
   html {
     scroll-behavior: smooth;
   }
+  ::selection {
+    @apply bg-emerald-200 text-forest-950;
+  }
+  :focus-visible {
+    outline-offset: 3px;
+  }
   body {
     @apply bg-slate-50 text-slate-900 antialiased;
     font-family: Inter, system-ui, sans-serif;
+  }
+  button,
+  a,
+  input,
+  textarea,
+  select {
+    -webkit-tap-highlight-color: transparent;
+  }
+  .leaflet-container {
+    font-family: Inter, system-ui, sans-serif;
+  }
+  .leaflet-control-attribution {
+    font-size: 9px !important;
   }
 }
 

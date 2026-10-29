@@ -43,6 +43,9 @@ export const resolveEmergency = async ({ tripId, eventId, actorId, updates }) =>
   if (!membership || membership.role !== 'leader') {
     throw new AppError('Only the trip leader can resolve emergencies', 403);
   }
+  if (event.status !== 'active') {
+    throw new AppError('Emergency event is already closed', 409);
+  }
 
   event.status = updates.status;
   if (updates.status === 'resolved') event.resolvedAt = new Date();

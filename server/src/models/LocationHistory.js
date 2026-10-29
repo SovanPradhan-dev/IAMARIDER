@@ -21,5 +21,6 @@ const locationHistorySchema = new mongoose.Schema(
 
 locationHistorySchema.index({ tripId: 1, userId: 1, recordedAt: -1 });
 locationHistorySchema.index({ tripId: 1, recordedAt: -1 });
+locationHistorySchema.index({ recordedAt: 1 }, { expireAfterSeconds: 30 * 24 * 60 * 60 });
 
 export const LocationHistory = mongoose.model('LocationHistory', locationHistorySchema);

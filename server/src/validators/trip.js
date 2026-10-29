@@ -38,10 +38,10 @@ export const updateTripSchema = z.object({
 });
 
 export const tripIdParamSchema = z.object({
-  tripId: z.string().min(1, 'Trip ID is required'),
+  tripId: z.string().regex(/^[a-f\d]{24}$/i, 'Invalid trip ID'),
 });
 
 export const memberUserIdParamSchema = z.object({
-  tripId: z.string().min(1, 'Trip ID is required'),
-  userId: z.string().min(1, 'User ID is required'),
+  tripId: tripIdParamSchema.shape.tripId,
+  userId: z.string().regex(/^[a-f\d]{24}$/i, 'Invalid user ID'),
 });

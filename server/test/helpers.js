@@ -122,6 +122,7 @@ export const createTestTrip = async (memberEmails = []) => {
     destination: { type: 'Point', coordinates: [87.5115, 22.2503] },
     status: 'scheduled',
     maxMembers: 10,
+    memberCount: memberEmails.length + 1,
     privacy: 'private',
   });
   await TripMember.create({

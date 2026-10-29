@@ -1,13 +1,23 @@
 import {
   createEmergency, getEmergencies, resolveEmergency,
 } from '../services/emergencyService.js';
+import { EmergencyEvent } from '../models/EmergencyEvent.js';
+import { emitTripEvent, notifyTripMembers } from '../utils/tripEvents.js';
 
 export const createEmergencyHandler = async (req, res) => {
   const { tripId } = req.validatedParams;
-  const event = await createEmergency({
+  const created = await createEmergency({
     tripId,
     reportedBy: req.user.userId,
     ...req.validatedBody,
+  });
+  const event = await EmergencyEvent.findById(created._id).populate('reportedBy', 'name avatarUrl').lean();
+  emitTripEvent(req, tripId, 'emergency:new', event);
+  await notifyTripMembers(req.app.get('io'), tripId, {
+    type: 'emergency_alert',
+    title: 'Safety alert reported',
+    message: `${event.reportedBy?.name || 'A rider'} reported an emergency.`,
+    excludeUserIds: [req.user.userId],
   });
   res.status(201).json({ emergency: event });
 };

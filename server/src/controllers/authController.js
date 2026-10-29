@@ -1,7 +1,17 @@
 import {
-  register, login, getMe, refreshTokens, updateProfile, getUserTrips,
+  register, login, getMe, refreshTokens, revokeRefreshToken, updateProfile, getUserTrips,
+  changePassword,
 } from '../services/authService.js';
+import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
+
+const refreshCookieOptions = {
+  httpOnly: true,
+  secure: env.COOKIE_SECURE,
+  sameSite: 'lax',
+  path: '/api/v1/auth',
+  maxAge: env.REFRESH_TOKEN_TTL_MS,
+};
 
 export const registerHandler = async (req, res) => {
   const { name, email, password } = req.validatedBody;
@@ -14,13 +24,7 @@ export const loginHandler = async (req, res) => {
   const { user, accessToken, refreshToken } = await login({ email, password });
 
   // Set refresh token in HttpOnly cookie; access token returned in body (short-lived)
-  res.cookie('refreshToken', refreshToken, {
-    httpOnly: true,
-    secure: process.env.COOKIE_SECURE === 'true',
-    sameSite: 'lax',
-    path: '/api/v1/auth/refresh',
-    maxAge: 7 * 24 * 60 * 60 * 1000,
-  });
+  res.cookie('refreshToken', refreshToken, refreshCookieOptions);
 
   logger.info('login response issued', { userId: user._id });
   res.json({ user, accessToken });
@@ -30,20 +34,21 @@ export const refreshHandler = async (req, res) => {
   const refreshToken = req.cookies.refreshToken;
   const { user, accessToken, refreshToken: newRefreshToken } = await refreshTokens(refreshToken);
 
-  res.cookie('refreshToken', newRefreshToken, {
-    httpOnly: true,
-    secure: process.env.COOKIE_SECURE === 'true',
-    sameSite: 'lax',
-    path: '/api/v1/auth/refresh',
-    maxAge: 7 * 24 * 60 * 60 * 1000,
-  });
+  res.cookie('refreshToken', newRefreshToken, refreshCookieOptions);
 
   res.json({ user, accessToken });
 };
 
 export const logoutHandler = async (req, res) => {
-  res.clearCookie('refreshToken', { path: '/api/v1/auth/refresh', httpOnly: true, sameSite: 'lax' });
+  await revokeRefreshToken(req.cookies.refreshToken);
+  res.clearCookie('refreshToken', refreshCookieOptions);
   res.json({ message: 'Logged out' });
+};
+
+export const changePasswordHandler = async (req, res) => {
+  const refreshToken = await changePassword(req.user.userId, req.validatedBody);
+  res.cookie('refreshToken', refreshToken, refreshCookieOptions);
+  res.json({ message: 'Password updated' });
 };
 
 export const meHandler = async (req, res) => {

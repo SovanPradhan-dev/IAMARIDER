@@ -5,16 +5,17 @@ import {
   createTripHandler, listTripsHandler, getTripHandler, joinTripHandler,
   leaveTripHandler, updateTripHandler, removeMemberHandler, startTripHandler,
   endTripHandler, cancelTripHandler, transferLeadershipHandler, listMembersHandler,
-  getLocationsHandler, getHistorySummaryHandler,
+  getLocationsHandler, getLocationHistoryHandler, getHistorySummaryHandler,
 } from '../controllers/tripController.js';
 import { authenticate } from '../middleware/auth.js';
 import { validateBody, validateParams, validateQuery } from '../middleware/validation.js';
-import { messageRateLimit, locationRateLimit } from '../middleware/rateLimit.js';
 import {
   createTripSchema, joinTripSchema, updateTripSchema, tripIdParamSchema,
   memberUserIdParamSchema,
 } from '../validators/trip.js';
 import { historyQuerySchema as trackingQuerySchema } from '../validators/tracking.js';
+import { locationUpdateSchema } from '../validators/tracking.js';
+import { updateLocationHandler, stopSharingHandler } from '../controllers/locationController.js';
 
 const router = Router();
 
@@ -46,6 +47,9 @@ router.post(
 
 // Tracking
 router.get('/:tripId/locations', authenticate, validateParams(tripIdParamSchema), catchAsync(getLocationsHandler));
+router.post('/:tripId/locations', authenticate, validateParams(tripIdParamSchema), validateBody(locationUpdateSchema), catchAsync(updateLocationHandler));
+router.delete('/:tripId/locations', authenticate, validateParams(tripIdParamSchema), catchAsync(stopSharingHandler));
+router.get('/:tripId/history', authenticate, validateParams(tripIdParamSchema), validateQuery(trackingQuerySchema), catchAsync(getLocationHistoryHandler));
 router.get('/:tripId/history/summary', authenticate, validateParams(tripIdParamSchema), validateQuery(trackingQuerySchema), catchAsync(getHistorySummaryHandler));
 
 export default router;

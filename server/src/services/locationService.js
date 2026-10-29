@@ -1,6 +1,5 @@
 import { LiveLocation } from '../models/LiveLocation.js';
 import { LocationHistory } from '../models/LocationHistory.js';
-import { TripMember } from '../models/TripMember.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { logger } from '../config/logger.js';
 

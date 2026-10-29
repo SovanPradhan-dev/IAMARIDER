@@ -1,9 +1,8 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { io as Client } from 'socket.io-client';
 import { api } from '../lib/api';
-import { api } from '../lib/api';
-import { connectSocket, getSocket, disconnectSocket } from '../lib/socket';
+import { connectSocket, getSocket } from '../lib/socket';
+import { joinTripRoom } from '../lib/tripSocket';
 import { useAuth } from '../hooks/useAuth';
 import { useGeolocation } from '../hooks/useGeolocation';
 import { toast } from '../components/common/Toast.jsx';
@@ -13,13 +12,13 @@ import CheckpointList from '../components/trip/CheckpointList.jsx';
 import ChatPanel from '../components/chat/ChatPanel.jsx';
 import Button from '../components/common/Button.jsx';
 
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
-
 export default function LiveTrip() {
   const { tripId } = useParams();
-  const { user, accessToken, logout } = useAuth();
+  const { user, accessToken } = useAuth();
   const navigate = useNavigate();
-  const socketRef = useRef(null);
+  const [map, setMap] = useState(null);
+  const [socket, setSocket] = useState(null);
+  const locationSharingRef = useRef(false);
 
   const [trip, setTrip] = useState(null);
   const [riders, setRiders] = useState([]);
@@ -35,13 +34,13 @@ export default function LiveTrip() {
     (loc) => {
       setMyLocation(loc);
       const sock = getSocket();
-      if (sock && locationSharing) {
+      if (sock && locationSharingRef.current && sock.connected) {
         sock.emit('location:update', { tripId, ...loc }, (resp) => {
           if (resp?.error) setGpsError(resp.error);
         });
       }
     },
-    [tripId, locationSharing]
+    [tripId]
   );
 
   const {
@@ -49,8 +48,6 @@ export default function LiveTrip() {
     error: posError,
     permission,
     requestPermission,
-    start,
-    stop,
   } = useGeolocation({ sendLocation: handleLocation, enabled: locationSharing, intervalMs: 4000 });
 
   useEffect(() => {
@@ -62,7 +59,7 @@ export default function LiveTrip() {
   useEffect(() => {
     const load = async () => {
       try {
-        const [tRes, cRes, eRes] = await Promise.all([
+        const [tRes, cRes, eRes, lRes] = await Promise.all([
           api.get(`/trips/${tripId}`),
           api.get(`/trips/${tripId}/checkpoints`),
           api.get(`/trips/${tripId}/emergencies`),
@@ -71,7 +68,7 @@ export default function LiveTrip() {
         setTrip(tRes.data.trip);
         setCheckpoints(cRes.data.checkpoints || []);
         setEmergencies(eRes.data.emergencies || []);
-        setRiders(tRes.data.locations || []);
+        setRiders(lRes.data.locations || []);
       } catch (err) {
         toast.error(err.response?.data?.error || 'Failed to load trip');
       }
@@ -82,56 +79,103 @@ export default function LiveTrip() {
   useEffect(() => {
     if (!accessToken) return;
     const sock = connectSocket(accessToken);
-    socketRef.current = sock;
-
-    sock.on('connect', () => setConnectionStatus('connected'));
-    sock.on('disconnect', () => setConnectionStatus('disconnected'));
-    sock.on('connect_error', () => setConnectionStatus('disconnected'));
-
-    sock.emit('trip:join', { tripId }, (resp) => {
+    setSocket(sock);
+    const leaveTripRoomListener = joinTripRoom(sock, tripId, {
+      onConnected: () => setConnectionStatus('connected'),
+      onJoined: (resp) => {
       if (resp?.error) {
         toast.error(resp.error);
         navigate('/dashboard');
         return;
       }
-      setRiders(resp.locations || []);
+      if (resp?.locations) {
+        api.get(`/trips/${tripId}/locations`)
+          .then(({ data }) => setRiders(data.locations || []))
+          .catch((err) => toast.error(err.response?.data?.error || 'Failed to refresh rider locations'));
+      }
+      },
     });
-
-    sock.on('location:changed', (data) => {
-      setRiders((prev) =>
-        prev.map((r) => (r.userId === data.userId ? { ...r, ...data } : r))
-      );
+    const handleDisconnect = () => setConnectionStatus('disconnected');
+    const handleLocationChange = (data) => {
+      setRiders((prev) => prev.map((r) =>
+        (r.userId?._id || r.userId)?.toString() === data.userId
+          ? { ...r, ...data }
+          : r
+      ));
       if (data.userId === user?._id) setMyLocation(data);
-    });
+    };
+    const handleMemberJoined = () => {
+      api.get(`/trips/${tripId}/locations`)
+        .then(({ data }) => setRiders(data.locations || []))
+        .catch((err) => toast.error(err.response?.data?.error || 'Failed to refresh rider list'));
+    };
+    const handleMemberLeft = () => handleMemberJoined();
+    const handleMemberRemoved = () => {
+      toast.error('You were removed from this trip');
+      setLocationSharing(false);
+      navigate('/dashboard');
+    };
+    const handleTripStarted = ({ trip: startedTrip }) => setTrip(startedTrip);
+    const handleEmergency = (event) => {
+      setEmergencies((current) => [event, ...current.filter((item) => item._id !== event._id)]);
+      toast.error(`${event.eventType.toUpperCase()} alert reported`);
+    };
+    sock.on('disconnect', handleDisconnect);
+    sock.on('connect_error', handleDisconnect);
 
-    sock.on('trip:member:joined', (data) => {
-      toast.success(`${data.userId} joined`);
-    });
+    sock.on('location:changed', handleLocationChange);
+    sock.on('trip:member:joined', handleMemberJoined);
+    sock.on('trip:member:left', handleMemberLeft);
+    sock.on('trip:member:removed', handleMemberRemoved);
+    sock.on('trip:started', handleTripStarted);
+    sock.on('emergency:new', handleEmergency);
 
-    sock.on('trip:ended', () => {
+    const handleTripEnded = () => {
       toast.info('Trip has ended by the leader');
       setConnectionStatus('disconnected');
       setTimeout(() => navigate(`/trips/${tripId}`), 2000);
-    });
+    };
+    sock.on('trip:ended', handleTripEnded);
 
-    sock.on('trip:error', (err) => toast.error(err.message || 'Trip error'));
+    const handleTripError = (err) => toast.error(err.message || 'Trip error');
+    sock.on('trip:error', handleTripError);
 
     return () => {
       sock.emit('trip:leave', { tripId });
-      sock.off('connect');
-      sock.off('disconnect');
-      sock.off('location:changed');
-      sock.off('trip:member:joined');
-      sock.off('trip:ended');
-      sock.off('trip:error');
+      leaveTripRoomListener();
+      sock.off('disconnect', handleDisconnect);
+      sock.off('connect_error', handleDisconnect);
+      sock.off('location:changed', handleLocationChange);
+      sock.off('trip:member:joined', handleMemberJoined);
+      sock.off('trip:member:left', handleMemberLeft);
+      sock.off('trip:member:removed', handleMemberRemoved);
+      sock.off('trip:started', handleTripStarted);
+      sock.off('emergency:new', handleEmergency);
+      sock.off('trip:ended', handleTripEnded);
+      sock.off('trip:error', handleTripError);
     };
   }, [tripId, accessToken, user?._id, navigate]);
 
   const toggleSharing = async () => {
     if (!locationSharing) {
+      if (trip?.status !== 'active') {
+        toast.error('Location sharing is available after the trip starts');
+        return;
+      }
+      locationSharingRef.current = true;
       const granted = await requestPermission();
       if (!granted) {
+        locationSharingRef.current = false;
         setLocationSharing(false);
+        return;
+      }
+    } else {
+      locationSharingRef.current = false;
+      try {
+        await api.delete(`/trips/${tripId}/locations`);
+      } catch (err) {
+        locationSharingRef.current = true;
+        toast.error(err.response?.data?.error || 'Failed to stop location sharing');
         return;
       }
     }
@@ -139,12 +183,15 @@ export default function LiveTrip() {
   };
 
   const isLeader = trip?.leaderId?._id === user?._id || trip?.leaderId === user?._id;
-  const myRider = riders.find((r) => r.userId === user?._id);
-  const freshness = myLocation
-    ? (Date.now() - new Date(myLocation.recordedAt || myLocation.updatedAt).getTime()) < 90000
-      ? 'online'
-      : 'stale'
-    : 'offline';
+  const recenterMap = () => {
+    const coordinates = myLocation?.location?.coordinates;
+    const center = coordinates
+      ? [coordinates[1], coordinates[0]]
+      : myLocation?.latitude != null && myLocation?.longitude != null
+        ? [myLocation.latitude, myLocation.longitude]
+        : [trip.startLocation?.coordinates?.[1] ?? 22.5726, trip.startLocation?.coordinates?.[0] ?? 88.3639];
+    map?.setView(center, Math.max(map.getZoom(), 13));
+  };
 
   const endTrip = async () => {
     if (!confirm('End this trip for everyone?')) return;
@@ -162,8 +209,14 @@ export default function LiveTrip() {
     try {
       const payload = { eventType: type };
       if (myLocation) {
-        payload.latitude = myLocation.latitude;
-        payload.longitude = myLocation.longitude;
+        const coordinates = myLocation.location?.coordinates;
+        if (coordinates) {
+          payload.latitude = coordinates[1];
+          payload.longitude = coordinates[0];
+        } else if (myLocation.latitude != null && myLocation.longitude != null) {
+          payload.latitude = myLocation.latitude;
+          payload.longitude = myLocation.longitude;
+        }
       }
       await api.post(`/trips/${tripId}/emergencies`, payload);
       toast.success(`${type} alert sent to trip members`);
@@ -205,7 +258,7 @@ export default function LiveTrip() {
             <div className="flex items-center justify-between p-4 border-b border-slate-200">
               <h3 className="font-semibold text-slate-900">Live map</h3>
               <div className="flex gap-2">
-                <Button onClick={() => {}} size="sm" variant="outline">Recenter</Button>
+                <Button onClick={recenterMap} size="sm" variant="outline">Recenter</Button>
                 <Button
                   onClick={toggleSharing}
                   size="sm"
@@ -227,6 +280,7 @@ export default function LiveTrip() {
                 }}
                 center={[trip.startLocation?.coordinates?.[1] ?? 22.5726, trip.startLocation?.coordinates?.[0] ?? 88.3639]}
                 fitToRiders
+                onMapReady={setMap}
               />
             </div>
             {gpsError && (
@@ -237,6 +291,11 @@ export default function LiveTrip() {
             {!locationSharing && (
               <div className="p-3 rounded-md bg-slate-50 text-xs text-slate-600 border border-slate-100">
                 Location sharing is off. Enable it to appear on the map.
+              </div>
+            )}
+            {gpsPermission && (
+              <div className="px-3 py-2 text-xs text-slate-500">
+                Location permission: {gpsPermission}
               </div>
             )}
           </div>
@@ -255,7 +314,7 @@ export default function LiveTrip() {
             </div>
           </div>
 
-          <CheckpointList tripId={tripId} checkpoints={checkpoints} isLeader={isLeader} />
+          <CheckpointList tripId={tripId} checkpoints={checkpoints} isLeader={isLeader} onChange={setCheckpoints} />
 
           <div className="card p-4">
             <h3 className="font-semibold text-slate-900 mb-4">Emergency</h3>
@@ -297,7 +356,7 @@ export default function LiveTrip() {
         </div>
       </div>
 
-      <ChatPanel tripId={tripId} />
+      <ChatPanel tripId={tripId} manageRoom={false} socket={socket} />
     </div>
   );
 }

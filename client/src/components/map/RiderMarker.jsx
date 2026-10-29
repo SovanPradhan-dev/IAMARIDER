@@ -1,5 +1,4 @@
-import { Marker, Popup, useMap } from 'react-leaflet';
-import { useEffect, useRef } from 'react';
+import { Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
 
 const riderIcon = (freshness) => {
@@ -15,25 +14,25 @@ const riderIcon = (freshness) => {
 };
 
 export default function RiderMarker({ rider }) {
-  const map = useMap();
-  const markerRef = useRef(null);
+  const coordinates = rider.location?.coordinates;
+  if (!coordinates || coordinates.length !== 2) return null;
 
-  useEffect(() => {
-    if (!rider.location || !rider.location.coordinates) return;
-    const lat = rider.location.coordinates[1];
-    const lon = rider.location.coordinates[0];
-    const pos = [lat, lon];
+  const freshnessLabel = rider.freshness === 'online'
+    ? 'Live'
+    : rider.freshness === 'stale'
+      ? 'Stale location'
+      : 'Offline';
 
-    if (markerRef.current) {
-      markerRef.current.setLatLng(pos);
-      markerRef.current.setIcon(riderIcon(rider.freshness));
-    } else {
-      markerRef.current = L.marker(pos, { icon: riderIcon(rider.freshness) }).addTo(map);
-      markerRef.current.bindPopup(
-        `<strong>${rider.name || 'Rider'}</strong><br/><small>${rider.freshness === 'online' ? 'Live' : rider.freshness === 'stale' ? 'Stale location' : 'Offline'}</small>`
-      );
-    }
-  }, [rider.location, rider.freshness, rider.name, map]);
-
-  return null;
+  return (
+    <Marker
+      position={[coordinates[1], coordinates[0]]}
+      icon={riderIcon(rider.freshness)}
+    >
+      <Popup>
+        <strong>{rider.name || 'Rider'}</strong>
+        <br />
+        <small>{freshnessLabel}</small>
+      </Popup>
+    </Marker>
+  );
 }

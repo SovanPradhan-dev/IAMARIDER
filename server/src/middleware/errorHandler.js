@@ -2,7 +2,7 @@
  * Centralized error handler.
  * Production responses never leak stack traces or internal details.
  */
-export const errorHandler = (err, req, res, next) => {
+export const errorHandler = (err, _req, res, _next) => {
   const status = err.statusCode || 500;
   const message = err.message || 'Internal server error';
 
